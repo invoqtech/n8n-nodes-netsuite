@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-netsuite-v2",
-	"version": "0.2.0",
+	"version": "0.2.1",
 	"description": "n8n community node for NetSuite using OAuth 2.0 Client Credentials with Certificate (JWT/PS256)",
 	"license": "MIT",
 	"keywords": [
