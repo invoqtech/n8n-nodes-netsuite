@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-netsuite-v2",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "n8n community node for Oracle NetSuite - REST API, SuiteQL, and Restlets with OAuth 2.0 Client Credentials (M2M/JWT/PS256)",
 	"license": "MIT",
 	"author": {
