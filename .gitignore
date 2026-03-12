@@ -1,0 +1,31 @@
+# Build output
+dist
+
+# Dependencies
+node_modules
+
+# Private keys and certificates
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+*.crt
+
+# Environment files
+.env
+.env.*
+
+# Test files with credentials
+test-connection.mjs
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# n8n build artifacts
+tsconfig.tsbuildinfo
