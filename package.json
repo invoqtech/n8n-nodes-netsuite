@@ -1,6 +1,6 @@
 {
 	"name": "n8n-nodes-netsuite-v2",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "n8n community node for Oracle NetSuite - REST API, SuiteQL, and Restlets with OAuth 2.0 Client Credentials (M2M/JWT/PS256)",
 	"license": "MIT",
 	"author": {
@@ -11,7 +11,7 @@
 		"type": "git",
 		"url": "https://github.com/avishaiasaf/n8n-netsuite-node-v2.git"
 	},
-	"homepage": "https://github.com/avishaiasaf/n8n-netsuite-node-v2#readme",
+	"homepage": "https://solutionlabtech.com",
 	"bugs": {
 		"url": "https://github.com/avishaiasaf/n8n-netsuite-node-v2/issues"
 	},
@@ -50,7 +50,8 @@
 			"dist/credentials/NetSuiteClientCredApi.credentials.js"
 		],
 		"nodes": [
-			"dist/nodes/NetSuite/NetSuite.node.js"
+			"dist/nodes/NetSuite/NetSuite.node.js",
+			"dist/nodes/NetSuite/NetSuiteTrigger.node.js"
 		]
 	},
 	"devDependencies": {

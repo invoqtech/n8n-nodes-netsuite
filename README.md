@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![n8n community node](https://img.shields.io/badge/n8n-community%20node-ff6d5a.svg)](https://docs.n8n.io/integrations/community-nodes/)
 
-A production-grade n8n community node for **Oracle NetSuite**, built by **[SolutionLab](mailto:avishai@solutionlabtech.com)**. Connects to the NetSuite REST API using **OAuth 2.0 Client Credentials with Certificate** (Machine-to-Machine / JWT PS256) - the most secure, fully automated authentication method available for server-to-server integrations.
+A production-grade n8n community node for **Oracle NetSuite**, built by **[SolutionLab](https://solutionlabtech.com)** ([Avishai Asaf](https://www.linkedin.com/in/avishaiasaf/)). Connects to the NetSuite REST API using **OAuth 2.0 Client Credentials with Certificate** (Machine-to-Machine / JWT PS256) - the most secure, fully automated authentication method available for server-to-server integrations.
 
-**3 resources. 10 operations. Zero user interaction required for authentication.**
+**3 resources. 10 operations. Polling triggers. Zero user interaction required for authentication.**
 
 ---
 
@@ -92,6 +92,26 @@ https://{accountId}.restlets.api.netsuite.com/app/site/hosting/restlet.nl?script
 - **PEM Normalization** - Handles four input variants (multi-line, escaped newlines, single-line, raw base64) and rebuilds the key with proper 64-character line formatting.
 - **Structured Error Parsing** - NetSuite REST API error responses are parsed to extract `o:errorDetails` and `o:errorCode` fields, providing specific error codes and messages instead of generic HTTP status text.
 - **Native Token Exchange** - The JWT-to-token exchange uses Node.js native `https` instead of n8n's HTTP request helper, avoiding URL encoding issues with the `client_assertion` parameter.
+
+### Polling Triggers
+
+The **NetSuite Trigger** node monitors your NetSuite data for changes and starts workflows automatically. It uses SuiteQL to poll for records that have been created or modified since the last check.
+
+| Event | Behavior |
+|-------|----------|
+| **Record Created** | Triggers when new records are created (uses `datecreated` field) |
+| **Record Updated** | Triggers when existing records are modified, excluding newly created records |
+| **Record Created or Updated** | Triggers on any change (uses `lastmodifieddate` field) |
+
+**Key capabilities:**
+- **Dynamic record type dropdown** - Same metadata catalog integration as the main node
+- **Configurable date fields** - Override `datecreated` and `lastmodifieddate` for custom records that use different field names
+- **Additional filters** - Narrow polling scope with SuiteQL WHERE clause fragments (e.g., `AND subsidiary = 1`)
+- **Field selection** - Return only the fields you need instead of `SELECT *`
+- **Automatic pagination** - Handles large result sets across multiple pages
+- **Structured error handling** - NetSuite error codes are parsed and surfaced clearly
+
+> **Polling interval:** Configured in the n8n workflow settings (default: every minute). The trigger establishes a baseline on first activation and only fires for records changed after that point.
 
 ---
 
@@ -315,6 +335,17 @@ Example POST body for a custom Restlet:
 }
 ```
 
+### Trigger Setup
+
+Add a **NetSuite Trigger** node as the first node in your workflow.
+
+1. Select the **Record Type** to monitor (e.g., Customer, Sales Order, Invoice)
+2. Choose the **Event** type: Created, Updated, or Created or Updated
+3. Optionally specify **Return Fields** (e.g., `id, companyname, email`) to reduce payload size
+4. Optionally add **Additional Filters** to narrow the scope (e.g., `AND subsidiary = 1`)
+
+The trigger polls NetSuite at the interval configured in your workflow settings. On first activation, it records the current timestamp as a baseline - only records changed after activation will trigger the workflow.
+
 ---
 
 ## How Authentication Works
@@ -437,9 +468,10 @@ If your requirements go beyond what this node provides out of the box, SolutionL
 - **Custom NetSuite Integration Development** - Tailored integrations between NetSuite and third-party systems, including complex data mappings and business logic
 - **SuiteScript & Restlet Development** - Server-side and client-side SuiteScript development for custom NetSuite functionality, including Restlet endpoints for external system access
 - **n8n Workflow Design & Deployment** - End-to-end workflow architecture, from initial design through production deployment and monitoring
+- **Real-Time NetSuite Triggers** - For sub-second event-driven workflows, SolutionLab can deploy custom User Event Scripts in your NetSuite account that push events to n8n webhooks in real time. This eliminates polling latency for time-critical integrations.
 - **Production Support & Troubleshooting** - Ongoing support for NetSuite integrations, including performance optimization and issue resolution
 
-**Contact:** [avishai@solutionlabtech.com](mailto:avishai@solutionlabtech.com)
+**Contact:** [avishai@solutionlabtech.com](mailto:avishai@solutionlabtech.com) | [LinkedIn](https://www.linkedin.com/in/avishaiasaf/) | [solutionlabtech.com](https://solutionlabtech.com)
 
 ---
 
@@ -447,7 +479,7 @@ If your requirements go beyond what this node provides out of the box, SolutionL
 
 ```bash
 # Clone the repository
-git clone https://github.com/solutionlab/n8n-nodes-netsuite-v2.git
+git clone https://github.com/avishaiasaf/n8n-netsuite-node-v2.git
 cd n8n-nodes-netsuite-v2
 
 # Install dependencies
@@ -460,7 +492,7 @@ npm run build
 npm run lint
 ```
 
-Submit issues and pull requests via [GitHub](https://github.com/solutionlab/n8n-nodes-netsuite-v2).
+Submit issues and pull requests via [GitHub](https://github.com/avishaiasaf/n8n-netsuite-node-v2).
 
 ---
 
