@@ -26,9 +26,8 @@ function base64urlEncodeBuffer(buf: Buffer): string {
 	return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-function normalizeAccountId(accountId: string): string {
-	return accountId.toLowerCase().replace(/_/g, '-');
-}
+import { normalizeAccountId } from '../nodes/NetSuite/utils';
+
 
 /**
  * Normalize PEM private key into a format that Node's crypto module accepts.
@@ -229,8 +228,7 @@ async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObjec
 export class NetSuiteClientCredApi implements ICredentialType {
 	name = 'netSuiteClientCredApi';
 	displayName = 'NetSuite Client Credentials (Certificate)';
-	documentationUrl =
-		'https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/section_162515992498.html';
+	documentationUrl = 'https://solutionlabtech.com';
 
 	properties: INodeProperties[] = [
 		{

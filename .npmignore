@@ -1,0 +1,12 @@
+*.ts
+!dist/**/*.js
+!dist/**/*.d.ts
+tsconfig.json
+.eslint*
+.prettier*
+node_modules/
+.git*
+.claude/
+test-*
+*.map
+src/

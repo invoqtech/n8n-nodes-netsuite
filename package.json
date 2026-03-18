@@ -1,7 +1,7 @@
 {
 	"name": "n8n-nodes-netsuite-v2",
-	"version": "0.2.3",
-	"description": "n8n community node for Oracle NetSuite - REST API, SuiteQL, and Restlets with OAuth 2.0 Client Credentials (M2M/JWT/PS256)",
+	"version": "0.3.0",
+	"description": "n8n community node for Oracle NetSuite by SolutionLab - REST API, SuiteQL, Restlets, and Polling Triggers with OAuth 2.0 Client Credentials (M2M/JWT/PS256)",
 	"license": "MIT",
 	"author": {
 		"name": "SolutionLab",
@@ -30,7 +30,12 @@
 		"client-credentials",
 		"m2m",
 		"jwt",
-		"automation"
+		"automation",
+		"solutionlab",
+		"netsuite-integration",
+		"netsuite-rest-api",
+		"netsuite-connector",
+		"polling-trigger"
 	],
 	"scripts": {
 		"build": "n8n-node build",

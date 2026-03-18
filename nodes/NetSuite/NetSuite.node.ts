@@ -8,10 +8,16 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
-function normalizeAccountId(accountId: string): string {
-	return accountId.toLowerCase().replace(/_/g, '-');
-}
+import {
+	buildSuiteTalkBaseUrl,
+	buildRestletBaseUrl,
+	loadRecordTypes,
+	parseNetSuiteError,
+	SUITEQL_TEMPLATES,
+	MAX_PAGES,
+} from './utils';
 
 export class NetSuite implements INodeType {
 	description: INodeTypeDescription = {
@@ -27,10 +33,48 @@ export class NetSuite implements INodeType {
 		},
 		inputs: ['main'],
 		outputs: ['main'],
+		usableAsTool: true,
 		credentials: [
 			{
 				name: 'netSuiteClientCredApi',
 				required: true,
+			},
+		],
+		codex: {
+			categories: ['Finance & Accounting'],
+			subcategories: {
+				'Finance & Accounting': ['ERP'],
+			},
+			alias: ['oracle', 'erp', 'suiteql', 'restlet', 'suitescript', 'netsuite'],
+		},
+		hints: [
+			{
+				message: 'Need help with complex NetSuite integrations? <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> offers custom SuiteScript development and integration consulting.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'always' as const,
+				displayCondition: '={{ $parameter.resource === "restlet" }}',
+			},
+			{
+				message: 'Tip: Need to filter or select specific fields? Use the <b>SuiteQL</b> resource instead — it supports full SQL-like queries with WHERE clauses, JOINs, and field selection.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'beforeExecution' as const,
+				displayCondition: '={{ $parameter.resource === "record" && $parameter.operation === "getAll" }}',
+			},
+			{
+				message: 'Need to create records with line items (invoices, sales orders)? These require nested JSON structures. <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> can help with complex transaction workflows.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'beforeExecution' as const,
+				displayCondition: '={{ $parameter.resource === "record" && $parameter.operation === "create" }}',
+			},
+			{
+				message: 'Need help with complex SuiteQL JOINs or custom record queries? <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> offers SuiteQL and integration consulting.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'beforeExecution' as const,
+				displayCondition: '={{ $parameter.resource === "suiteql" }}',
 			},
 		],
 		properties: [
@@ -102,6 +146,12 @@ export class NetSuite implements INodeType {
 						value: 'update',
 						description: 'Update a record',
 						action: 'Update a record',
+					},
+					{
+						name: 'Upsert',
+						value: 'upsert',
+						description: 'Create or update a record by external ID',
+						action: 'Upsert a record',
 					},
 				],
 				default: 'get',
@@ -205,6 +255,32 @@ export class NetSuite implements INodeType {
 				},
 			},
 			{
+				displayName: 'External ID Field',
+				name: 'externalIdField',
+				type: 'string',
+				default: 'externalid',
+				description: 'The field name used to match records for upsert (e.g., "externalid" or a custom field)',
+				displayOptions: {
+					show: {
+						resource: ['record'],
+						operation: ['upsert'],
+					},
+				},
+			},
+			{
+				displayName: 'External ID Value',
+				name: 'externalIdValue',
+				type: 'string',
+				default: '',
+				description: 'The value of the external ID field to match for upsert',
+				displayOptions: {
+					show: {
+						resource: ['record'],
+						operation: ['upsert'],
+					},
+				},
+			},
+			{
 				displayName: 'Fields',
 				name: 'fields',
 				type: 'collection',
@@ -213,7 +289,7 @@ export class NetSuite implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['record'],
-						operation: ['create', 'update'],
+						operation: ['create', 'update', 'upsert'],
 					},
 				},
 				options: [
@@ -222,6 +298,7 @@ export class NetSuite implements INodeType {
 						name: 'jsonFields',
 						type: 'json',
 						default: '{}',
+						placeholder: '{"companyname": "Acme Corp", "email": "contact@acme.com", "subsidiary": {"id": "1"}}',
 						description: 'JSON object representing the fields to set on the record',
 					},
 				],
@@ -232,7 +309,7 @@ export class NetSuite implements INodeType {
 				name: 'recordReturnAll',
 				type: 'boolean',
 				default: false,
-				description: 'Whether to return all records or only the first page',
+				description: 'Whether to automatically paginate through all results (may be slow for large datasets)',
 				displayOptions: {
 					show: {
 						resource: ['record'],
@@ -266,7 +343,7 @@ export class NetSuite implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['record'],
-						operation: ['get', 'getAll'],
+						operation: ['get'],
 					},
 				},
 				options: [
@@ -282,14 +359,7 @@ export class NetSuite implements INodeType {
 						name: 'fields',
 						type: 'string',
 						default: '',
-						description: 'Comma-separated list of field names to return (e.g. "id,companyname,email")',
-					},
-					{
-						displayName: 'Query Filter',
-						name: 'q',
-						type: 'string',
-						default: '',
-						description: 'Filter expression for Get Many (e.g. "email IS NOT NULL")',
+						description: 'Comma-separated list of field names to return (e.g. "id,companyName,email")',
 					},
 				],
 			},
@@ -298,18 +368,70 @@ export class NetSuite implements INodeType {
 			//         SuiteQL Fields
 			// ----------------------------------
 			{
+				displayName: 'Query Template',
+				name: 'queryTemplate',
+				type: 'options',
+				options: [
+					{
+						name: 'Custom Query',
+						value: 'custom',
+						description: 'Write your own SuiteQL query',
+					},
+					{
+						name: 'Active Customers',
+						value: 'activeCustomers',
+						description: 'List all active customers with key fields',
+					},
+					{
+						name: 'Recent Sales Orders (30 days)',
+						value: 'recentSalesOrders',
+						description: 'Sales orders from the last 30 days',
+					},
+					{
+						name: 'Open Invoices',
+						value: 'openInvoices',
+						description: 'All unpaid invoices sorted by due date',
+					},
+					{
+						name: 'Inventory Levels',
+						value: 'inventoryLevels',
+						description: 'Items with on-hand and available quantities',
+					},
+					{
+						name: 'Employee Directory',
+						value: 'employeeDirectory',
+						description: 'All active employees with contact details',
+					},
+					{
+						name: 'Vendor Bills (30 days)',
+						value: 'recentVendorBills',
+						description: 'Vendor bills from the last 30 days',
+					},
+				],
+				default: 'custom',
+				description: 'Start with a template query or write your own',
+				displayOptions: {
+					show: {
+						resource: ['suiteql'],
+						operation: ['execute'],
+					},
+				},
+			},
+			{
 				displayName: 'Query',
 				name: 'query',
 				type: 'string',
 				typeOptions: {
 					rows: 5,
 				},
-				default: 'SELECT * FROM customer WHERE email IS NOT NULL',
+				default: '',
+				placeholder: "SELECT id, companyname, email FROM customer WHERE isinactive = 'F'",
 				description: 'The SuiteQL query to execute',
 				displayOptions: {
 					show: {
 						resource: ['suiteql'],
 						operation: ['execute'],
+						queryTemplate: ['custom'],
 					},
 				},
 			},
@@ -426,59 +548,7 @@ export class NetSuite implements INodeType {
 	methods = {
 		loadOptions: {
 			async getRecordTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const returnData: INodePropertyOptions[] = [];
-				try {
-					const credentials = await this.getCredentials('netSuiteClientCredApi');
-					const accountId = normalizeAccountId(credentials.accountId as string);
-					const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest`;
-
-					const response = await this.helpers.httpRequestWithAuthentication.call(
-						this,
-						'netSuiteClientCredApi',
-						{
-							method: 'GET',
-							url: `${baseUrl}/record/v1/metadata-catalog`,
-							headers: {
-								Prefer: 'transient',
-							},
-						} as IHttpRequestOptions,
-					);
-
-					if (response && response.items) {
-						for (const item of response.items as Array<{ name?: string }>) {
-							if (item.name) {
-								returnData.push({
-									name: item.name,
-									value: item.name,
-								});
-							}
-						}
-					}
-
-					returnData.sort((a, b) => {
-						if (a.name < b.name) return -1;
-						if (a.name > b.name) return 1;
-						return 0;
-					});
-				} catch (_error) {
-					// Fallback to common record types if API call fails
-				}
-
-				if (returnData.length === 0) {
-					returnData.push(
-						{ name: 'Customer', value: 'customer' },
-						{ name: 'Employee', value: 'employee' },
-						{ name: 'Invoice', value: 'invoice' },
-						{ name: 'Item', value: 'item' },
-						{ name: 'Journal Entry', value: 'journalEntry' },
-						{ name: 'Purchase Order', value: 'purchaseOrder' },
-						{ name: 'Sales Order', value: 'salesOrder' },
-						{ name: 'Vendor', value: 'vendor' },
-						{ name: 'Vendor Bill', value: 'vendorBill' },
-					);
-				}
-
-				return returnData;
+				return loadRecordTypes(this);
 			},
 		},
 	};
@@ -489,9 +559,8 @@ export class NetSuite implements INodeType {
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
 		const credentials = await this.getCredentials('netSuiteClientCredApi');
-		const accountId = normalizeAccountId(credentials.accountId as string);
-		const suiteTalkBase = `https://${accountId}.suitetalk.api.netsuite.com/services/rest`;
-		const restletBase = `https://${accountId}.restlets.api.netsuite.com/app/site/hosting/restlet.nl`;
+		const suiteTalkBase = buildSuiteTalkBaseUrl(credentials.accountId as string);
+		const restletBase = buildRestletBaseUrl(credentials.accountId as string);
 
 		for (let i = 0; i < items.length; i++) {
 			try {
@@ -502,6 +571,9 @@ export class NetSuite implements INodeType {
 
 					if (operation === 'get') {
 						const recordId = this.getNodeParameter('recordId', i) as string;
+						if (!recordId) {
+							throw new NodeOperationError(this.getNode(), 'Record ID is required', { itemIndex: i });
+						}
 						const additionalOptions = this.getNodeParameter('additionalOptions', i, {}) as IDataObject;
 						const qs: IDataObject = {};
 						if (additionalOptions.fields) qs.fields = additionalOptions.fields;
@@ -519,16 +591,14 @@ export class NetSuite implements INodeType {
 					} else if (operation === 'getAll') {
 						const recordReturnAll = this.getNodeParameter('recordReturnAll', i, false) as boolean;
 						const recordLimit = recordReturnAll ? 1000 : (this.getNodeParameter('recordLimit', i, 1000) as number);
-						const additionalOptions = this.getNodeParameter('additionalOptions', i, {}) as IDataObject;
 						const qs: IDataObject = { limit: recordLimit };
-						if (additionalOptions.fields) qs.fields = additionalOptions.fields;
-						if (additionalOptions.expandSubResources) qs.expandSubResources = 'true';
-						if (additionalOptions.q) qs.q = additionalOptions.q;
 
 						const allRecords: IDataObject[] = [];
 						let nextUrl: string | undefined = `${suiteTalkBase}/record/v1/${recordType}`;
+						let pageCount = 0;
 
-						while (nextUrl) {
+						while (nextUrl && pageCount < MAX_PAGES) {
+							pageCount++;
 							const response = (await this.helpers.httpRequestWithAuthentication.call(
 								this,
 								'netSuiteClientCredApi',
@@ -558,7 +628,16 @@ export class NetSuite implements INodeType {
 						responseData = allRecords;
 					} else if (operation === 'create') {
 						const jsonFields = this.getNodeParameter('fields.jsonFields', i, '{}') as string;
-						const body = JSON.parse(jsonFields) as IDataObject;
+						let body: IDataObject;
+						try {
+							body = JSON.parse(jsonFields) as IDataObject;
+						} catch (e) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid JSON in Fields: ${(e as Error).message}. Value: ${jsonFields.substring(0, 100)}`,
+								{ itemIndex: i },
+							);
+						}
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'netSuiteClientCredApi',
@@ -571,8 +650,20 @@ export class NetSuite implements INodeType {
 						)) as IDataObject;
 					} else if (operation === 'update') {
 						const recordId = this.getNodeParameter('recordId', i) as string;
+						if (!recordId) {
+							throw new NodeOperationError(this.getNode(), 'Record ID is required', { itemIndex: i });
+						}
 						const jsonFields = this.getNodeParameter('fields.jsonFields', i, '{}') as string;
-						const body = JSON.parse(jsonFields) as IDataObject;
+						let body: IDataObject;
+						try {
+							body = JSON.parse(jsonFields) as IDataObject;
+						} catch (e) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid JSON in Fields: ${(e as Error).message}. Value: ${jsonFields.substring(0, 100)}`,
+								{ itemIndex: i },
+							);
+						}
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'netSuiteClientCredApi',
@@ -583,8 +674,38 @@ export class NetSuite implements INodeType {
 								headers: { 'Content-Type': 'application/json' },
 							} as IHttpRequestOptions,
 						)) as IDataObject;
+					} else if (operation === 'upsert') {
+						const externalIdField = this.getNodeParameter('externalIdField', i) as string;
+						const externalIdValue = this.getNodeParameter('externalIdValue', i) as string;
+						if (!externalIdValue) {
+							throw new NodeOperationError(this.getNode(), 'External ID Value is required for upsert', { itemIndex: i });
+						}
+						const jsonFields = this.getNodeParameter('fields.jsonFields', i, '{}') as string;
+						let body: IDataObject;
+						try {
+							body = JSON.parse(jsonFields) as IDataObject;
+						} catch (e) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid JSON in Fields: ${(e as Error).message}. Value: ${jsonFields.substring(0, 100)}`,
+								{ itemIndex: i },
+							);
+						}
+						responseData = (await this.helpers.httpRequestWithAuthentication.call(
+							this,
+							'netSuiteClientCredApi',
+							{
+								method: 'PUT',
+								url: `${suiteTalkBase}/record/v1/${recordType}/${externalIdField}=${externalIdValue}`,
+								body,
+								headers: { 'Content-Type': 'application/json' },
+							} as IHttpRequestOptions,
+						)) as IDataObject;
 					} else if (operation === 'delete') {
 						const recordId = this.getNodeParameter('recordId', i) as string;
+						if (!recordId) {
+							throw new NodeOperationError(this.getNode(), 'Record ID is required', { itemIndex: i });
+						}
 						await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'netSuiteClientCredApi',
@@ -596,15 +717,20 @@ export class NetSuite implements INodeType {
 						responseData = { success: true, id: recordId };
 					}
 				} else if (resource === 'suiteql') {
-					const query = this.getNodeParameter('query', i) as string;
+					const queryTemplate = this.getNodeParameter('queryTemplate', i, 'custom') as string;
+					const query = queryTemplate === 'custom'
+						? (this.getNodeParameter('query', i) as string)
+						: SUITEQL_TEMPLATES[queryTemplate];
 					const returnAll = this.getNodeParameter('returnAll', i, false) as boolean;
 					const limit = returnAll ? 1000 : (this.getNodeParameter('limit', i, 1000) as number);
 
 					const allItems: IDataObject[] = [];
 					let offset = 0;
 					let hasMore = true;
+					let pageCount = 0;
 
-					while (hasMore) {
+					while (hasMore && pageCount < MAX_PAGES) {
+						pageCount++;
 						const response = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
 							'netSuiteClientCredApi',
@@ -620,13 +746,13 @@ export class NetSuite implements INodeType {
 							} as IHttpRequestOptions,
 						)) as IDataObject;
 
-						const items = (response.items as IDataObject[]) || [];
-						allItems.push(...items);
+						const pageItems = (response.items as IDataObject[]) || [];
+						allItems.push(...pageItems);
 
 						if (!returnAll || !response.hasMore) {
 							hasMore = false;
 						} else {
-							offset += items.length;
+							offset += pageItems.length;
 						}
 					}
 
@@ -662,7 +788,15 @@ export class NetSuite implements INodeType {
 
 					if (method === 'POST' || method === 'PUT') {
 						const bodyJson = this.getNodeParameter('restletBody', i, '{}') as string;
-						requestOptions.body = JSON.parse(bodyJson) as IDataObject;
+						try {
+							requestOptions.body = JSON.parse(bodyJson) as IDataObject;
+						} catch (e) {
+							throw new NodeOperationError(
+								this.getNode(),
+								`Invalid JSON in Restlet Body: ${(e as Error).message}. Value: ${bodyJson.substring(0, 100)}`,
+								{ itemIndex: i },
+							);
+						}
 					}
 
 					responseData = (await this.helpers.httpRequestWithAuthentication.call(
@@ -680,39 +814,22 @@ export class NetSuite implements INodeType {
 					returnData.push(responseData);
 				}
 			} catch (error) {
-				let errorMessage = (error as Error).message;
-
-				// Try to extract NetSuite structured error details from response body
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				const err = error as any;
-				if (err.description) {
-					try {
-						const errBody = JSON.parse(err.description as string) as IDataObject;
-						if (errBody['o:errorDetails']) {
-							// eslint-disable-next-line @typescript-eslint/no-explicit-any
-							const details = errBody['o:errorDetails'] as any[];
-							if (Array.isArray(details) && details.length > 0) {
-								errorMessage = details
-									.map(
-										// eslint-disable-next-line @typescript-eslint/no-explicit-any
-										(d: any) =>
-											`${(d['o:errorCode'] as string) || 'ERROR'}: ${(d.detail as string) || (d.message as string) || ''}`,
-									)
-									.join('; ');
-							}
-						} else if (errBody.title) {
-							errorMessage = `${errBody.title as string}: ${(errBody.detail as string) || (errBody['o:errorCode'] as string) || ''}`;
-						}
-					} catch {
-						// Response is not JSON, keep original error message
+				if (error instanceof NodeOperationError) {
+					if (this.continueOnFail()) {
+						returnData.push({ error: error.message });
+						continue;
 					}
+					throw error;
 				}
+
+				const errorMessage = parseNetSuiteError(error);
+				this.logger.error(`NetSuite error: ${errorMessage}`, { error });
 
 				if (this.continueOnFail()) {
 					returnData.push({ error: errorMessage });
 					continue;
 				}
-				throw new Error(errorMessage);
+				throw new NodeOperationError(this.getNode(), errorMessage, { itemIndex: i });
 			}
 		}
 

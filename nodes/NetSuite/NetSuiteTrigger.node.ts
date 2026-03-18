@@ -8,20 +8,15 @@ import type {
 	INodeTypeDescription,
 	IPollFunctions,
 } from 'n8n-workflow';
+import { NodeOperationError } from 'n8n-workflow';
 
-function normalizeAccountId(accountId: string): string {
-	return accountId.toLowerCase().replace(/_/g, '-');
-}
-
-function formatNetSuiteDate(date: Date): string {
-	const mm = String(date.getMonth() + 1).padStart(2, '0');
-	const dd = String(date.getDate()).padStart(2, '0');
-	const yyyy = date.getFullYear();
-	const hh = String(date.getHours()).padStart(2, '0');
-	const mi = String(date.getMinutes()).padStart(2, '0');
-	const ss = String(date.getSeconds()).padStart(2, '0');
-	return `${mm}/${dd}/${yyyy} ${hh}:${mi}:${ss}`;
-}
+import {
+	buildSuiteTalkBaseUrl,
+	formatNetSuiteDate,
+	loadRecordTypes,
+	parseNetSuiteError,
+	MAX_PAGES,
+} from './utils';
 
 export class NetSuiteTrigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -42,6 +37,27 @@ export class NetSuiteTrigger implements INodeType {
 			{
 				name: 'netSuiteClientCredApi',
 				required: true,
+			},
+		],
+		codex: {
+			categories: ['Finance & Accounting'],
+			subcategories: {
+				'Finance & Accounting': ['ERP'],
+			},
+			alias: ['oracle', 'erp', 'netsuite', 'polling'],
+		},
+		hints: [
+			{
+				message: 'Polling triggers check for changes at intervals. For real-time, sub-second triggers, <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> can deploy custom SuiteScript webhooks in your NetSuite account.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'always' as const,
+			},
+			{
+				message: 'Processing large volumes of records? <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> can build custom Map/Reduce scripts for high-performance bulk NetSuite operations.',
+				type: 'info' as const,
+				location: 'ndv' as const,
+				whenToDisplay: 'afterExecution' as const,
 			},
 		],
 		properties: [
@@ -86,7 +102,7 @@ export class NetSuiteTrigger implements INodeType {
 				name: 'returnFields',
 				type: 'string',
 				default: '*',
-				description: 'Comma-separated list of fields to return (e.g., "id, companyname, email"). Use * for all fields.',
+				description: 'Comma-separated list of fields to return (e.g., "id,companyname,email"). Use * for all fields.',
 			},
 			{
 				displayName: 'Options',
@@ -117,6 +133,16 @@ export class NetSuiteTrigger implements INodeType {
 						placeholder: 'AND subsidiary = 1',
 						description: 'Additional SuiteQL WHERE clause fragment to narrow the polling scope (e.g., "AND subsidiary = 1")',
 					},
+					{
+						displayName: 'Manual Test Lookback (Hours)',
+						name: 'lookbackHours',
+						type: 'number',
+						default: 24,
+						description: 'How many hours to look back when running the trigger manually (Test mode). Does not affect production polling.',
+						typeOptions: {
+							minValue: 1,
+						},
+					},
 				],
 			},
 		],
@@ -125,59 +151,7 @@ export class NetSuiteTrigger implements INodeType {
 	methods = {
 		loadOptions: {
 			async getRecordTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				const returnData: INodePropertyOptions[] = [];
-				try {
-					const credentials = await this.getCredentials('netSuiteClientCredApi');
-					const accountId = normalizeAccountId(credentials.accountId as string);
-					const baseUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest`;
-
-					const response = await this.helpers.httpRequestWithAuthentication.call(
-						this,
-						'netSuiteClientCredApi',
-						{
-							method: 'GET',
-							url: `${baseUrl}/record/v1/metadata-catalog`,
-							headers: {
-								Prefer: 'transient',
-							},
-						} as IHttpRequestOptions,
-					);
-
-					if (response && response.items) {
-						for (const item of response.items as Array<{ name?: string }>) {
-							if (item.name) {
-								returnData.push({
-									name: item.name,
-									value: item.name,
-								});
-							}
-						}
-					}
-
-					returnData.sort((a, b) => {
-						if (a.name < b.name) return -1;
-						if (a.name > b.name) return 1;
-						return 0;
-					});
-				} catch (_error) {
-					// Fallback to common record types if API call fails
-				}
-
-				if (returnData.length === 0) {
-					returnData.push(
-						{ name: 'Customer', value: 'customer' },
-						{ name: 'Employee', value: 'employee' },
-						{ name: 'Invoice', value: 'invoice' },
-						{ name: 'Item', value: 'item' },
-						{ name: 'Journal Entry', value: 'journalEntry' },
-						{ name: 'Purchase Order', value: 'purchaseOrder' },
-						{ name: 'Sales Order', value: 'salesOrder' },
-						{ name: 'Vendor', value: 'vendor' },
-						{ name: 'Vendor Bill', value: 'vendorBill' },
-					);
-				}
-
-				return returnData;
+				return loadRecordTypes(this);
 			},
 		},
 	};
@@ -192,19 +166,19 @@ export class NetSuiteTrigger implements INodeType {
 		const dateCreatedField = (options.dateCreatedField as string) || 'datecreated';
 		const dateModifiedField = (options.dateModifiedField as string) || 'lastmodifieddate';
 		const additionalFilters = (options.additionalFilters as string) || '';
+		const lookbackHours = (options.lookbackHours as number) || 24;
 
 		const credentials = await this.getCredentials('netSuiteClientCredApi');
-		const accountId = normalizeAccountId(credentials.accountId as string);
-		const suiteTalkBase = `https://${accountId}.suitetalk.api.netsuite.com/services/rest`;
+		const suiteTalkBase = buildSuiteTalkBaseUrl(credentials.accountId as string);
 
 		const isManualRun = this.getMode() === 'manual';
 
 		// First run: establish baseline timestamp
-		// For manual test runs, use a 24-hour lookback so there's data to see
+		// For manual test runs, use configurable lookback so there's data to see
 		if (!webhookData.lastTimeChecked) {
 			if (isManualRun) {
 				const lookback = new Date();
-				lookback.setHours(lookback.getHours() - 24);
+				lookback.setHours(lookback.getHours() - lookbackHours);
 				webhookData.lastTimeChecked = formatNetSuiteDate(lookback);
 			} else {
 				webhookData.lastTimeChecked = formatNetSuiteDate(new Date());
@@ -245,8 +219,10 @@ export class NetSuiteTrigger implements INodeType {
 			let offset = 0;
 			let hasMore = true;
 			const limit = 1000;
+			let pageCount = 0;
 
-			while (hasMore) {
+			while (hasMore && pageCount < MAX_PAGES) {
+				pageCount++;
 				const response = (await this.helpers.httpRequestWithAuthentication.call(
 					this,
 					'netSuiteClientCredApi',
@@ -306,39 +282,12 @@ export class NetSuiteTrigger implements INodeType {
 				}])];
 			}
 		} catch (error) {
-			let errorMessage = (error as Error).message;
-
-			// Try to extract NetSuite structured error details
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const err = error as any;
-			if (err.description) {
-				try {
-					const errBody = JSON.parse(err.description as string) as IDataObject;
-					if (errBody['o:errorDetails']) {
-						// eslint-disable-next-line @typescript-eslint/no-explicit-any
-						const details = errBody['o:errorDetails'] as any[];
-						if (Array.isArray(details) && details.length > 0) {
-							errorMessage = details
-								.map(
-									// eslint-disable-next-line @typescript-eslint/no-explicit-any
-									(d: any) =>
-										`${(d['o:errorCode'] as string) || 'ERROR'}: ${(d.detail as string) || (d.message as string) || ''}`,
-								)
-								.join('; ');
-						}
-					} else if (errBody.title) {
-						errorMessage = `${errBody.title as string}: ${(errBody.detail as string) || (errBody['o:errorCode'] as string) || ''}`;
-					}
-				} catch {
-					// Response is not JSON, keep original error message
-				}
-			}
-
-			throw new Error(`NetSuite Trigger error [query: ${query}]: ${errorMessage}`);
+			const errorMessage = parseNetSuiteError(error);
+			throw new NodeOperationError(
+				this.getNode(),
+				`NetSuite Trigger error [query: ${query}]: ${errorMessage}`,
+			);
 		}
-
-		// Update timestamp even when no results found
-		webhookData.lastTimeChecked = now;
 
 		return null;
 	}

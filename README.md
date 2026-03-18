@@ -1,12 +1,14 @@
 # n8n-nodes-netsuite-v2
 
 [![npm version](https://img.shields.io/npm/v/n8n-nodes-netsuite-v2.svg)](https://www.npmjs.com/package/n8n-nodes-netsuite-v2)
+[![npm downloads](https://img.shields.io/npm/dm/n8n-nodes-netsuite-v2.svg)](https://www.npmjs.com/package/n8n-nodes-netsuite-v2)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![n8n community node](https://img.shields.io/badge/n8n-community%20node-ff6d5a.svg)](https://docs.n8n.io/integrations/community-nodes/)
+[![Built by SolutionLab](https://img.shields.io/badge/Built%20by-SolutionLab-0077B5.svg)](https://solutionlabtech.com)
 
 A production-grade n8n community node for **Oracle NetSuite**, built by **[SolutionLab](https://solutionlabtech.com)** ([Avishai Asaf](https://www.linkedin.com/in/avishaiasaf/)). Connects to the NetSuite REST API using **OAuth 2.0 Client Credentials with Certificate** (Machine-to-Machine / JWT PS256) - the most secure, fully automated authentication method available for server-to-server integrations.
 
-**3 resources. 10 operations. Polling triggers. Zero user interaction required for authentication.**
+**3 resources. 11 operations. Polling triggers. SuiteQL templates. Zero user interaction required for authentication.**
 
 ---
 
@@ -47,24 +49,27 @@ Full CRUD operations on any NetSuite record type via the SuiteTalk REST API.
 | **Get** | GET | Retrieve a single record by internal ID |
 | **Get Many** | GET | List records with filtering, field selection, and sub-resource expansion |
 | **Update** | PATCH | Partial update - only the fields you include are modified |
+| **Upsert** | PUT | Create or update a record by external ID - ideal for syncing data from external systems |
 | **Delete** | DELETE | Remove a record by internal ID |
 
-**Dynamic Record Types** - The record type dropdown is populated automatically from NetSuite's metadata catalog (`/services/rest/record/v1/metadata-catalog`). If the catalog is unavailable, the node falls back to nine common record types: Customer, Employee, Invoice, Item, Journal Entry, Purchase Order, Sales Order, Vendor, and Vendor Bill.
+**Dynamic Record Types** - The record type dropdown is populated automatically from NetSuite's metadata catalog (`/services/rest/record/v1/metadata-catalog`). If the catalog is unavailable, the node falls back to 20 common record types including Customer, Contact, Invoice, Sales Order, Purchase Order, Journal Entry, and more.
 
 **Get Many Pagination** - Enable "Return All" to automatically follow NetSuite's `rel:next` pagination links until all records are retrieved. When disabled, a single page of results is returned up to the configured limit.
 
-**Additional Options** (available on Get and Get Many):
+**Additional Options:**
 
-| Option | Type | Description |
-|--------|------|-------------|
-| **Fields** | String | Comma-separated list of field names to return (reduces payload size) |
-| **Expand Sub-Resources** | Boolean | Include sublists and line items in the response |
-| **Query Filter** | String | Filter expression to narrow results (Get Many only) |
+| Option | Available On | Type | Description |
+|--------|-------------|------|-------------|
+| **Fields** | Get | String | Comma-separated list of field names to return (reduces payload size) |
+| **Expand Sub-Resources** | Get | Boolean | Include sublists and line items in the response |
+
+> **Tip:** Need to filter records or select specific fields? Use the **SuiteQL** resource — it supports full SQL-like queries with WHERE clauses, JOINs, and field selection.
 
 ### SuiteQL
 
 Execute SQL-like queries against your NetSuite data using Oracle's SuiteQL syntax.
 
+- **Query Templates** - Start with built-in templates for common queries (Active Customers, Recent Sales Orders, Open Invoices, Inventory Levels, Employee Directory, Vendor Bills) or write your own
 - **Automatic Pagination** - When "Return All" is enabled, the node paginates through results using NetSuite's `hasMore` flag and offset-based pagination
 - **Configurable Limit** - When "Return All" is disabled, returns up to the specified limit (default: 1000)
 - **Transient Preferences** - Requests include the `Prefer: transient` header for optimized response handling
@@ -134,6 +139,16 @@ npm install n8n-nodes-netsuite-v2
 Then restart n8n.
 
 > **Compatibility:** Requires n8n with `n8n-workflow` >= 2.12.0.
+
+---
+
+## Quick Start
+
+1. **Install** the node via Settings > Community Nodes > `n8n-nodes-netsuite-v2`
+2. **Configure credentials** — follow the [NetSuite Setup](#netsuite-setup---prerequisites) below to create an M2M integration and certificate
+3. **Create your first workflow** — drag the NetSuite node onto the canvas, select Resource: SuiteQL, pick "Active Customers" template, and execute
+
+That's it — you'll see your NetSuite customer list in under 5 minutes.
 
 ---
 
@@ -265,8 +280,8 @@ Use **Additional Options** to control the response:
 Select **Operation: Get Many** and choose the record type.
 
 - Enable **Return All** to automatically paginate through all matching records
-- Use the **Query Filter** additional option to narrow results (e.g., `email IS NOT NULL`)
 - Set a **Limit** when Return All is disabled to control the page size
+- For filtering or field selection, use the **SuiteQL** resource which supports full SQL-like WHERE clauses
 
 #### Update a Record
 
@@ -345,6 +360,73 @@ Add a **NetSuite Trigger** node as the first node in your workflow.
 4. Optionally add **Additional Filters** to narrow the scope (e.g., `AND subsidiary = 1`)
 
 The trigger polls NetSuite at the interval configured in your workflow settings. On first activation, it records the current timestamp as a baseline - only records changed after activation will trigger the workflow.
+
+#### Upsert a Record
+
+Select **Operation: Upsert**, choose the record type, specify the **External ID Field** (default: `externalid`) and its **Value**, then provide the fields:
+
+```json
+{
+  "companyname": "Acme Corp",
+  "email": "contact@acme.com",
+  "subsidiary": { "id": "1" }
+}
+```
+
+If a record with the given external ID exists, it will be updated. Otherwise, a new record is created. This is ideal for syncing data from external systems.
+
+---
+
+## Common Workflow Examples
+
+These are popular workflows built with this connector. For implementation help, [contact SolutionLab](https://solutionlabtech.com).
+
+**NetSuite → Google Sheets Daily Sync**
+Schedule a daily SuiteQL query (e.g., open invoices) and write results to a Google Sheet for reporting.
+
+**Shopify Order → NetSuite Sales Order**
+Use a Shopify trigger to capture new orders, then create NetSuite sales orders with customer lookup and item mapping.
+
+**Daily Invoice Aging Report via Email**
+Run "Open Invoices" SuiteQL template on a schedule, format as HTML table, and send via email to your finance team.
+
+**CRM Contact Sync**
+Use the polling trigger to detect new NetSuite customers, then sync to HubSpot, Salesforce, or your CRM of choice.
+
+**Inventory Alerts**
+Poll inventory levels with SuiteQL and send Slack alerts when stock falls below threshold.
+
+---
+
+## Professional Services & Support
+
+This node is developed and maintained by **[SolutionLab](https://solutionlabtech.com)**, a team that specializes in NetSuite integrations, SuiteScript development, and n8n workflow automation.
+
+### Free vs Professional
+
+| Capability | Free (this connector) | Professional (SolutionLab) |
+|---|---|---|
+| Record CRUD + Upsert | Included | — |
+| SuiteQL queries with templates | Included | — |
+| Restlet invocation (all HTTP methods) | Included | — |
+| Polling triggers | Included | — |
+| Real-time webhook triggers | — | Custom SuiteScript User Event Script deployment |
+| Bulk create/update/delete | — | Custom Restlet scripts for batch operations |
+| Line item manipulation | — | Complex transaction workflows (invoices, sales orders with lines) |
+| Multi-subsidiary configuration | — | NetSuite role, permission, and subsidiary setup |
+| Custom field mapping & data transformation | — | Integration consulting and architecture |
+
+### What We Build
+
+- **NetSuite ↔ E-commerce sync** - Real-time inventory, order, and customer sync with Shopify, WooCommerce, and custom platforms
+- **Automated invoicing & payment processing** - End-to-end order-to-cash automation with GL journal entries
+- **Multi-system ERP integration** - NetSuite as the hub connecting CRM, warehouse, and logistics systems
+- **Custom SuiteScript Restlets** - Purpose-built API endpoints for complex business logic that REST API can't handle
+- **Real-time NetSuite triggers** - User Event Scripts that push events to n8n webhooks in sub-second latency
+
+### Contact
+
+**[Book a consultation](https://solutionlabtech.com)** | [avishai@solutionlabtech.com](mailto:avishai@solutionlabtech.com) | [LinkedIn](https://www.linkedin.com/in/avishaiasaf/)
 
 ---
 
@@ -459,19 +541,16 @@ Two hooks ensure the Bearer token is attached to every outgoing request:
 
 ---
 
-## Professional Services & Support
+## What's New in v0.3.0
 
-This node is developed and maintained by **SolutionLab**, a team that specializes in NetSuite integrations, SuiteScript development, and n8n workflow automation.
+- **Polling Triggers** — Monitor NetSuite records for creation/modification with the new NetSuite Trigger node
+- **6 SuiteQL Templates** — Built-in queries for customers, sales orders, invoices, inventory, employees, and vendor bills
+- **Improved Error Messages** — Contextual help for common HTTP errors (400, 401, 403, 404) with troubleshooting guidance
+- **Input Validation** — Record ID and External ID checks prevent cryptic API errors
+- **Pagination Safety** — Maximum iteration limits prevent runaway loops
+- **AI Agent Support** — Use the NetSuite node as a tool in n8n AI Agent workflows
 
-If your requirements go beyond what this node provides out of the box, SolutionLab offers:
-
-- **Custom NetSuite Integration Development** - Tailored integrations between NetSuite and third-party systems, including complex data mappings and business logic
-- **SuiteScript & Restlet Development** - Server-side and client-side SuiteScript development for custom NetSuite functionality, including Restlet endpoints for external system access
-- **n8n Workflow Design & Deployment** - End-to-end workflow architecture, from initial design through production deployment and monitoring
-- **Real-Time NetSuite Triggers** - For sub-second event-driven workflows, SolutionLab can deploy custom User Event Scripts in your NetSuite account that push events to n8n webhooks in real time. This eliminates polling latency for time-critical integrations.
-- **Production Support & Troubleshooting** - Ongoing support for NetSuite integrations, including performance optimization and issue resolution
-
-**Contact:** [avishai@solutionlabtech.com](mailto:avishai@solutionlabtech.com) | [LinkedIn](https://www.linkedin.com/in/avishaiasaf/) | [solutionlabtech.com](https://solutionlabtech.com)
+No breaking changes from v0.2.x. See [CHANGELOG.md](CHANGELOG.md) for full details.
 
 ---
 
