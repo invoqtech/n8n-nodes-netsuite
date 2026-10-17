@@ -29,7 +29,99 @@ export function buildRestletBaseUrl(accountId: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Date formatting
+// Trigger watermark helpers
+//
+// All trigger timestamps are produced by NetSuite itself (TO_CHAR in the
+// user's NetSuite time zone) and compared back with TO_DATE in the same
+// session, so the n8n server clock and time zone never enter the comparison.
+// ---------------------------------------------------------------------------
+
+/** Format used for every trigger timestamp, on both sides of the comparison */
+export const NS_TS_FORMAT = 'YYYY-MM-DD HH24:MI:SS';
+
+/** Watermark used when the monitored table is empty */
+export const EPOCH_WATERMARK = '1970-01-01 00:00:00';
+
+/** Helper columns the trigger adds to its query and strips from output */
+export const WM_COLUMN = 'ns_trigger_wm';
+export const WM_ID_COLUMN = 'ns_trigger_id';
+
+export interface TriggerState {
+	watermark: string;
+	boundaryIds: string[];
+}
+
+/** Shift a NetSuite-local timestamp by whole hours without involving any time zone */
+export function shiftTimestamp(ts: string, hours: number): string {
+	const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(ts);
+	if (!m) return ts;
+	const ms = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) + hours * 3600000;
+	return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+export function buildBaselineQuery(recordType: string, watermarkField: string): string {
+	return `SELECT TO_CHAR(MAX(${watermarkField}), '${NS_TS_FORMAT}') AS ${WM_COLUMN} FROM ${recordType}`;
+}
+
+export function buildTriggerQuery(opts: {
+	recordType: string;
+	event: string;
+	fields: string;
+	dateCreatedField: string;
+	dateModifiedField: string;
+	additionalFilters: string;
+	watermark: string;
+}): string {
+	const wmField = opts.event === 'created' ? opts.dateCreatedField : opts.dateModifiedField;
+	const since = `TO_DATE('${opts.watermark}', '${NS_TS_FORMAT}')`;
+	const selected = opts.fields.trim() === '*' || !opts.fields.trim() ? 't.*' : opts.fields;
+	let where = `t.${wmField} >= ${since}`;
+	if (opts.event === 'updated') {
+		where += ` AND t.${opts.dateCreatedField} < ${since}`;
+	}
+	if (opts.additionalFilters.trim()) {
+		where += ` ${opts.additionalFilters.trim()}`;
+	}
+	return (
+		`SELECT ${selected}, t.id AS ${WM_ID_COLUMN}, TO_CHAR(t.${wmField}, '${NS_TS_FORMAT}') AS ${WM_COLUMN} ` +
+		`FROM ${opts.recordType} t WHERE ${where} ORDER BY t.${wmField}, t.id`
+	);
+}
+
+/**
+ * Drop rows already emitted on the previous watermark second, strip helper
+ * columns, and compute the state for the next poll.
+ */
+export function applyWatermark(
+	rows: IDataObject[],
+	state: TriggerState,
+): { items: IDataObject[]; next: TriggerState } {
+	const seen = new Set(state.boundaryIds);
+	let watermark = state.watermark;
+	let boundary = new Set(state.boundaryIds);
+	const items: IDataObject[] = [];
+
+	for (const row of rows) {
+		const wm = String(row[WM_COLUMN] ?? '');
+		const id = String(row[WM_ID_COLUMN] ?? '');
+		if (wm === state.watermark && seen.has(id)) continue;
+
+		if (wm > watermark) {
+			watermark = wm;
+			boundary = new Set();
+		}
+		if (wm === watermark) boundary.add(id);
+
+		const item = { ...row };
+		delete item[WM_COLUMN];
+		delete item[WM_ID_COLUMN];
+		delete item.links;
+		items.push(item);
+	}
+
+	return { items, next: { watermark, boundaryIds: [...boundary] } };
+}
+
 // ---------------------------------------------------------------------------
 
 export function formatNetSuiteDate(date: Date): string {
@@ -80,9 +172,9 @@ export function parseNetSuiteError(error: unknown): string {
 	if (statusCode === 400) {
 		errorMessage += ' — Check that field names and values match NetSuite\'s expected format for this record type.';
 	} else if (statusCode === 401) {
-		errorMessage += ' — Authentication failed. Verify your M2M credentials and certificate mapping. For setup help, visit solutionlabtech.com';
+		errorMessage += ' — Authentication failed. Verify your M2M credentials and certificate mapping. For setup help, visit invoqtech.com';
 	} else if (statusCode === 403) {
-		errorMessage += ' — This typically requires role/permission configuration in NetSuite. For help, visit solutionlabtech.com';
+		errorMessage += ' — This typically requires role/permission configuration in NetSuite. For help, visit invoqtech.com';
 	} else if (statusCode === 404) {
 		errorMessage += ' — Record or resource not found. Verify the record type and ID exist in your NetSuite account.';
 	}
@@ -126,12 +218,12 @@ export async function loadRecordTypes(
 ): Promise<INodePropertyOptions[]> {
 	const returnData: INodePropertyOptions[] = [];
 	try {
-		const credentials = await context.getCredentials('netSuiteClientCredApi');
+		const credentials = await context.getCredentials('netSuiteInvoqApi');
 		const baseUrl = buildSuiteTalkBaseUrl(credentials.accountId as string);
 
 		const response = await context.helpers.httpRequestWithAuthentication.call(
 			context,
-			'netSuiteClientCredApi',
+			'netSuiteInvoqApi',
 			{
 				method: 'GET',
 				url: `${baseUrl}/record/v1/metadata-catalog`,

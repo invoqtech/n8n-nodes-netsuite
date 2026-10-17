@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
-import * as https from 'https';
 import type {
+	IAuthenticate,
+	Icon,
 	ICredentialDataDecryptedObject,
 	ICredentialTestRequest,
 	ICredentialType,
@@ -70,17 +71,15 @@ function normalizePem(raw: string): string {
 	return `-----BEGIN ${pemType}-----\n${lines.join('\n')}\n-----END ${pemType}-----`;
 }
 
-// ---------------------------------------------------------------------------
-// Module-level token cache (keyed by accountId)
-// ---------------------------------------------------------------------------
-const tokenCache = new Map<string, { accessToken: string; expiresAt: number }>();
-
 /**
- * Standalone function that performs the full JWT signing + token exchange.
- * Uses native `https` module to avoid n8n httpRequest encoding issues.
- * Returns the raw access_token string.
+ * Performs the full JWT signing + token exchange through n8n's own HTTP helper.
+ * The form body is sent as a pre-encoded string so the signed client_assertion
+ * reaches NetSuite byte for byte. Returns the raw access_token string.
  */
-async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObject): Promise<string> {
+async function exchangeForAccessToken(
+	helper: IHttpRequestHelper,
+	credentials: ICredentialDataDecryptedObject,
+): Promise<string> {
 	// --- Validate inputs ---
 	const rawAccountId = credentials.accountId as string;
 	const consumerKey = credentials.consumerKey as string;
@@ -102,17 +101,6 @@ async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObjec
 
 	const accountId = normalizeAccountId(rawAccountId);
 	const privateKey = normalizePem(rawPrivateKey);
-	const cacheKey = `${accountId}:${consumerKey}`;
-
-	// Check module-level cache
-	const cached = tokenCache.get(cacheKey);
-	if (cached) {
-		const now = Math.floor(Date.now() / 1000);
-		if (now < cached.expiresAt - 300) {
-			return cached.accessToken;
-		}
-	}
-
 	const tokenUrl = `https://${accountId}.suitetalk.api.netsuite.com/services/rest/auth/oauth2/v1/token`;
 	const now = Math.floor(Date.now() / 1000);
 
@@ -148,52 +136,33 @@ async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObjec
 		);
 	}
 
-	// --- Exchange JWT for access token via native https ---
+	// --- Exchange JWT for access token ---
 	const tokenBody = new URLSearchParams({
 		grant_type: 'client_credentials',
 		client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
 		client_assertion: jwt,
 	}).toString();
 
-	const tokenResponseBody = await new Promise<string>((resolve, reject) => {
-		const urlObj = new URL(tokenUrl);
-		const req = https.request(
-			{
-				hostname: urlObj.hostname,
-				path: urlObj.pathname,
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/x-www-form-urlencoded',
-					'Content-Length': Buffer.byteLength(tokenBody),
-				},
-			},
-			(res) => {
-				let data = '';
-				res.on('data', (chunk: Buffer) => {
-					data += chunk.toString();
-				});
-				res.on('end', () => {
-					if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
-						resolve(data);
-					} else {
-						reject(
-							new Error(
-								`Token exchange failed (HTTP ${res.statusCode}). ` +
-									`URL: ${tokenUrl} | Response: ${data}`,
-							),
-						);
-					}
-				});
-			},
-		);
-		req.on('error', (err) => {
-			reject(
-				new Error(`Token exchange network error. URL: ${tokenUrl} | Detail: ${err.message}`),
-			);
+	let tokenResponse: unknown;
+	try {
+		tokenResponse = await helper.helpers.httpRequest({
+			method: 'POST',
+			url: tokenUrl,
+			body: tokenBody,
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 		});
-		req.write(tokenBody);
-		req.end();
-	});
+	} catch (requestError) {
+		const err = requestError as { message?: string; response?: { status?: number; data?: unknown } };
+		const status = err.response?.status;
+		const data = err.response?.data;
+		throw new Error(
+			status
+				? `Token exchange failed (HTTP ${status}). URL: ${tokenUrl} | Response: ${typeof data === 'string' ? data : JSON.stringify(data)}`
+				: `Token exchange network error. URL: ${tokenUrl} | Detail: ${err.message}`,
+		);
+	}
+	const tokenResponseBody =
+		typeof tokenResponse === 'string' ? tokenResponse : JSON.stringify(tokenResponse);
 
 	// --- Parse and validate response ---
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -213,11 +182,6 @@ async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObjec
 	}
 
 	const accessToken = parsed.access_token as string;
-	const expiresIn = Number(parsed.expires_in) || 3600;
-
-	// Cache the token
-	tokenCache.set(cacheKey, { accessToken, expiresAt: now + expiresIn });
-
 	return accessToken;
 }
 
@@ -225,10 +189,12 @@ async function exchangeForAccessToken(credentials: ICredentialDataDecryptedObjec
 // Credential class
 // ---------------------------------------------------------------------------
 
-export class NetSuiteClientCredApi implements ICredentialType {
-	name = 'netSuiteClientCredApi';
-	displayName = 'NetSuite Client Credentials (Certificate)';
-	documentationUrl = 'https://solutionlabtech.com';
+export class NetSuiteInvoqApi implements ICredentialType {
+	name = 'netSuiteInvoqApi';
+	displayName = 'NetSuite Client Credentials (Certificate) API';
+
+	icon: Icon = { light: 'file:../nodes/NetSuite/netsuite.svg', dark: 'file:../nodes/NetSuite/netsuite.dark.svg' };
+	documentationUrl = 'https://github.com/invoqtech/n8n-nodes-netsuite#netsuite-setup---prerequisites';
 
 	properties: INodeProperties[] = [
 		{
@@ -271,44 +237,45 @@ export class NetSuiteClientCredApi implements ICredentialType {
 				'The private key in PEM format used to sign the JWT assertion. This is the private key of the certificate uploaded to NetSuite. Paste the entire PEM content including BEGIN/END lines.',
 			required: true,
 		},
+		{
+			// n8n fills this through preAuthentication and refreshes it on a 401.
+			displayName: 'Access Token',
+			name: 'accessToken',
+			type: 'hidden',
+			typeOptions: { expirable: true, password: true },
+			default: '',
+		},
 	];
 
 	// -----------------------------------------------------------------------
-	// preAuthentication — runs before each httpRequestWithAuthentication call
-	// during workflow execution. Returns data merged into credentials.
+	// preAuthentication — n8n runs this when the expirable accessToken is
+	// empty or a request returns 401, and stores the result on the credential.
 	// -----------------------------------------------------------------------
 	async preAuthentication(
 		this: IHttpRequestHelper,
 		credentials: ICredentialDataDecryptedObject,
 	): Promise<IDataObject> {
-		const accessToken = await exchangeForAccessToken(credentials);
-		return {
-			access_token: accessToken,
-			normalizedAccountId: normalizeAccountId(credentials.accountId as string),
-		};
+		const accessToken = await exchangeForAccessToken(this, credentials);
+		return { accessToken };
 	}
 
 	// -----------------------------------------------------------------------
-	// authenticate — function-based hook called for EVERY request, including
-	// credential tests. If preAuthentication already set access_token, we
-	// reuse it; otherwise we obtain a fresh token (handles the case where
-	// n8n skips preAuthentication during credential testing).
+	// authenticate — attaches the bearer token to every request.
 	// -----------------------------------------------------------------------
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	authenticate: any = async (
+	authenticate: IAuthenticate = async (
 		credentials: ICredentialDataDecryptedObject,
 		requestOptions: IHttpRequestOptions,
 	): Promise<IHttpRequestOptions> => {
-		// Try to use access_token set by preAuthentication; fall back to direct exchange
-		let accessToken = credentials.access_token as string | undefined;
+		const accessToken = credentials.accessToken as string | undefined;
 		if (!accessToken) {
-			accessToken = await exchangeForAccessToken(credentials);
+			throw new Error(
+				'NetSuite access token is missing. Re-save the credential and run the request again.',
+			);
 		}
-
-		if (!requestOptions.headers) {
-			requestOptions.headers = {};
-		}
-		(requestOptions.headers as Record<string, string>).Authorization = `Bearer ${accessToken}`;
+		requestOptions.headers = {
+			...(requestOptions.headers ?? {}),
+			Authorization: `Bearer ${accessToken}`,
+		};
 		return requestOptions;
 	};
 

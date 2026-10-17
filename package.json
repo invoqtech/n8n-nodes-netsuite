@@ -1,19 +1,20 @@
 {
-	"name": "n8n-nodes-netsuite-v2",
-	"version": "0.3.0",
-	"description": "n8n community node for Oracle NetSuite by SolutionLab - REST API, SuiteQL, Restlets, and Polling Triggers with OAuth 2.0 Client Credentials (M2M/JWT/PS256)",
+	"name": "@invoqtech/n8n-nodes-netsuite",
+	"version": "1.0.0",
+	"description": "Oracle NetSuite for n8n by InvoQ Technologies - REST records, SuiteQL, RESTlets and polling triggers with unattended OAuth 2.0 Client Credentials (certificate / M2M) authentication",
 	"license": "MIT",
 	"author": {
-		"name": "SolutionLab",
-		"email": "avishai@solutionlabtech.com"
+		"name": "InvoQ Technologies",
+		"email": "avishai@invoqtech.com",
+		"url": "https://invoqtech.com"
 	},
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/avishaiasaf/n8n-netsuite-node-v2.git"
+		"url": "git+https://github.com/invoqtech/n8n-nodes-netsuite.git"
 	},
-	"homepage": "https://solutionlabtech.com",
+	"homepage": "https://github.com/invoqtech/n8n-nodes-netsuite#readme",
 	"bugs": {
-		"url": "https://github.com/avishaiasaf/n8n-netsuite-node-v2/issues"
+		"url": "https://github.com/invoqtech/n8n-nodes-netsuite/issues"
 	},
 	"keywords": [
 		"n8n-community-node-package",
@@ -31,11 +32,13 @@
 		"m2m",
 		"jwt",
 		"automation",
-		"solutionlab",
 		"netsuite-integration",
 		"netsuite-rest-api",
 		"netsuite-connector",
-		"polling-trigger"
+		"polling-trigger",
+		"invoq",
+		"suitetalk-rest",
+		"finance-automation"
 	],
 	"scripts": {
 		"build": "n8n-node build",
@@ -44,7 +47,8 @@
 		"lint": "n8n-node lint",
 		"lint:fix": "n8n-node lint --fix",
 		"release": "n8n-node release",
-		"prepublishOnly": "n8n-node prerelease"
+		"prepublishOnly": "n8n-node prerelease",
+		"test": "node --test test/*.test.js"
 	},
 	"files": [
 		"dist"
@@ -52,7 +56,7 @@
 	"n8n": {
 		"n8nNodesApiVersion": 1,
 		"credentials": [
-			"dist/credentials/NetSuiteClientCredApi.credentials.js"
+			"dist/credentials/NetSuiteInvoqApi.credentials.js"
 		],
 		"nodes": [
 			"dist/nodes/NetSuite/NetSuite.node.js",
@@ -60,7 +64,7 @@
 		]
 	},
 	"devDependencies": {
-		"@n8n/node-cli": "*",
+		"@n8n/node-cli": "^0.52.5",
 		"eslint": "9.32.0",
 		"n8n-workflow": "^2.12.0",
 		"prettier": "3.6.2",
@@ -69,7 +73,8 @@
 	"peerDependencies": {
 		"n8n-workflow": "*"
 	},
-	"overrides": {
-		"change-case": "4.1.2"
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
 	}
 }
