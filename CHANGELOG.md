@@ -14,7 +14,7 @@ Package renamed from `n8n-nodes-netsuite-v2` to `@invoqtech/n8n-nodes-netsuite`,
 ### Changed
 - **Authentication** — the token exchange now runs through n8n's HTTP helper instead of Node's `https` module, and the access token is stored as an expirable credential field that n8n refreshes on a 401 (required for n8n Cloud and verification).
 - **Trigger baseline** — on activation the trigger starts from the newest timestamp already in NetSuite; state from 0.x is reset, not replayed. Manual tests look back from that timestamp.
-- **Icons** — new original SVG icons with light and dark variants.
+- **Icons** — Oracle NetSuite logo as an SVG icon (light and dark variants).
 - **Lint compliance** — node and credential names, option ordering and labels follow the current `@n8n/node-cli` linter (for example "Upsert" is now "Create or Update", Limit defaults to 50, trigger node type is `netSuiteTrigger`).
 - **Branding** — author, links, hints and error help now point to InvoQ Technologies (invoqtech.com).
 
