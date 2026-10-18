@@ -12,6 +12,7 @@ Package renamed from `n8n-nodes-netsuite-v2` to `@invoqtech/n8n-nodes-netsuite`,
 - **Trigger paging** — trigger queries now `ORDER BY` the watched date and `id`, so offset pages cannot overlap or skip rows.
 
 ### Changed
+- **Faster setup** — the credential test now checks one record type (`metadata-catalog?select=customer`) instead of downloading the full metadata catalog. The Record Type field is a search picker that loads the catalog only when opened, caches it per account for 6 hours, and also accepts a typed ID (for example `salesOrder`) with no request at all.
 - **Authentication** — the token exchange now runs through n8n's HTTP helper instead of Node's `https` module, and the access token is stored as an expirable credential field that n8n refreshes on a 401 (required for n8n Cloud and verification).
 - **Trigger baseline** — on activation the trigger starts from the newest timestamp already in NetSuite; state from 0.x is reset, not replayed. Manual tests look back from that timestamp.
 - **Icons** — Oracle NetSuite logo as an SVG icon (light and dark variants).

@@ -287,7 +287,10 @@ export class NetSuiteInvoqApi implements ICredentialType {
 		request: {
 			baseURL:
 				'=https://{{$credentials.accountId.toLowerCase().split("_").join("-")}}.suitetalk.api.netsuite.com',
+			// select= limits the catalog to one record type: a fast check of
+			// authentication and REST Web Services access, not the full catalog.
 			url: '/services/rest/record/v1/metadata-catalog',
+			qs: { select: 'customer' },
 			method: 'GET',
 			headers: {
 				Prefer: 'transient',

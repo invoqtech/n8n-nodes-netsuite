@@ -1,9 +1,7 @@
 import type {
 	IDataObject,
 	IHttpRequestOptions,
-	ILoadOptionsFunctions,
 	INodeExecutionData,
-	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 	IPollFunctions,
@@ -16,7 +14,8 @@ import {
 	buildSuiteTalkBaseUrl,
 	buildTriggerQuery,
 	EPOCH_WATERMARK,
-	loadRecordTypes,
+	recordTypeProperty,
+	searchRecordTypes,
 	parseNetSuiteError,
 	shiftTimestamp,
 	MAX_PAGES,
@@ -32,7 +31,7 @@ export class NetSuiteTrigger implements INodeType {
 		group: ['trigger'],
 		version: 1,
 		polling: true,
-		subtitle: '={{$parameter["event"] + " on " + $parameter["recordType"]}}',
+		subtitle: '={{$parameter["event"] + " on " + ($parameter["recordType"].value || $parameter["recordType"])}}',
 		description: 'Starts the workflow when NetSuite records are created or updated',
 		defaults: {
 			name: 'NetSuite Trigger',
@@ -67,17 +66,7 @@ export class NetSuiteTrigger implements INodeType {
 			},
 		],
 		properties: [
-			{
-				displayName: 'Record Type Name or ID',
-				name: 'recordType',
-				type: 'options',
-				default: 'customer',
-				typeOptions: {
-					loadOptionsMethod: 'getRecordTypes',
-				},
-				description: 'The type of record to monitor. Choose from the list or enter a custom ID. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-				required: true,
-			},
+			recordTypeProperty('The type of record to monitor. Pick from the list or type its ID.'),
 			{
 				displayName: 'Event',
 				name: 'event',
@@ -155,16 +144,14 @@ export class NetSuiteTrigger implements INodeType {
 	};
 
 	methods = {
-		loadOptions: {
-			async getRecordTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				return loadRecordTypes(this);
-			},
+		listSearch: {
+			searchRecordTypes,
 		},
 	};
 
 	async poll(this: IPollFunctions): Promise<INodeExecutionData[][] | null> {
 		const webhookData = this.getWorkflowStaticData('node');
-		const recordType = this.getNodeParameter('recordType') as string;
+		const recordType = this.getNodeParameter('recordType', '', { extractValue: true }) as string;
 		const event = this.getNodeParameter('event') as string;
 		const returnFields = this.getNodeParameter('returnFields', '*') as string;
 		const options = this.getNodeParameter('options', {}) as IDataObject;

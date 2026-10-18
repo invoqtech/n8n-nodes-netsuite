@@ -2,9 +2,7 @@ import type {
 	IDataObject,
 	IExecuteFunctions,
 	IHttpRequestOptions,
-	ILoadOptionsFunctions,
 	INodeExecutionData,
-	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
@@ -13,7 +11,8 @@ import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 import {
 	buildSuiteTalkBaseUrl,
 	buildRestletBaseUrl,
-	loadRecordTypes,
+	recordTypeProperty,
+	searchRecordTypes,
 	parseNetSuiteError,
 	SUITEQL_TEMPLATES,
 	MAX_PAGES,
@@ -226,21 +225,9 @@ export class NetSuite implements INodeType {
 			// ----------------------------------
 			//         Record Fields
 			// ----------------------------------
-			{
-				displayName: 'Record Type Name or ID',
-				name: 'recordType',
-				type: 'options',
-				default: 'customer',
-				typeOptions: {
-					loadOptionsMethod: 'getRecordTypes',
-				},
-				description: 'The type of record to access. Choose from the list or enter a custom ID. Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>.',
-				displayOptions: {
-					show: {
-						resource: ['record'],
-					},
-				},
-			},
+			recordTypeProperty('The type of record to access. Pick from the list or type its ID, e.g. salesOrder.', {
+				show: { resource: ['record'] },
+			}),
 			{
 				displayName: 'Record ID',
 				name: 'recordId',
@@ -546,10 +533,8 @@ export class NetSuite implements INodeType {
 	};
 
 	methods = {
-		loadOptions: {
-			async getRecordTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				return loadRecordTypes(this);
-			},
+		listSearch: {
+			searchRecordTypes,
 		},
 	};
 
@@ -567,7 +552,7 @@ export class NetSuite implements INodeType {
 				let responseData: IDataObject | IDataObject[] | undefined;
 
 				if (resource === 'record') {
-					const recordType = this.getNodeParameter('recordType', i) as string;
+					const recordType = this.getNodeParameter('recordType', i, '', { extractValue: true }) as string;
 
 					if (operation === 'get') {
 						const recordId = this.getNodeParameter('recordId', i) as string;

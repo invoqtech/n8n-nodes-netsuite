@@ -2,6 +2,8 @@ import type {
 	IDataObject,
 	IHttpRequestOptions,
 	ILoadOptionsFunctions,
+	INodeListSearchResult,
+	INodeProperties,
 	INodePropertyOptions,
 } from 'n8n-workflow';
 
@@ -213,54 +215,97 @@ export const FALLBACK_RECORD_TYPES: INodePropertyOptions[] = [
 // Shared load options
 // ---------------------------------------------------------------------------
 
-export async function loadRecordTypes(
-	context: ILoadOptionsFunctions,
-): Promise<INodePropertyOptions[]> {
-	const returnData: INodePropertyOptions[] = [];
+// The metadata catalog lists every record type in the account and can take
+// several seconds. Cache it per account so the picker opens instantly after
+// the first load, and share one in-flight request between concurrent callers.
+const CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+const catalogCache = new Map<string, { at: number; types: string[] }>();
+const catalogInFlight = new Map<string, Promise<string[]>>();
+
+async function fetchCatalog(context: ILoadOptionsFunctions, accountId: string): Promise<string[]> {
+	const response = (await context.helpers.httpRequestWithAuthentication.call(
+		context,
+		'netSuiteInvoqApi',
+		{
+			method: 'GET',
+			url: `${buildSuiteTalkBaseUrl(accountId)}/record/v1/metadata-catalog`,
+			headers: { Prefer: 'transient' },
+		} as IHttpRequestOptions,
+	)) as IDataObject;
+	const names = ((response?.items as Array<{ name?: string }>) || [])
+		.map((item) => item.name)
+		.filter((name): name is string => Boolean(name));
+	return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+
+export async function getRecordTypeNames(context: ILoadOptionsFunctions): Promise<string[]> {
+	const credentials = await context.getCredentials('netSuiteInvoqApi');
+	const accountId = normalizeAccountId(credentials.accountId as string);
+
+	const cached = catalogCache.get(accountId);
+	if (cached && Date.now() - cached.at < CATALOG_TTL_MS) return cached.types;
+
+	let pending = catalogInFlight.get(accountId);
+	if (!pending) {
+		pending = fetchCatalog(context, accountId)
+			.then((types) => {
+				if (types.length) catalogCache.set(accountId, { at: Date.now(), types });
+				return types;
+			})
+			.finally(() => catalogInFlight.delete(accountId));
+		catalogInFlight.set(accountId, pending);
+	}
+
 	try {
-		const credentials = await context.getCredentials('netSuiteInvoqApi');
-		const baseUrl = buildSuiteTalkBaseUrl(credentials.accountId as string);
-
-		const response = await context.helpers.httpRequestWithAuthentication.call(
-			context,
-			'netSuiteInvoqApi',
-			{
-				method: 'GET',
-				url: `${baseUrl}/record/v1/metadata-catalog`,
-				headers: {
-					Prefer: 'transient',
-				},
-			} as IHttpRequestOptions,
-		);
-
-		if (response && response.items) {
-			for (const item of response.items as Array<{ name?: string }>) {
-				if (item.name) {
-					returnData.push({
-						name: item.name,
-						value: item.name,
-					});
-				}
-			}
-		}
-
-		returnData.sort((a, b) => {
-			if (a.name < b.name) return -1;
-			if (a.name > b.name) return 1;
-			return 0;
+		const types = await pending;
+		if (types.length) return types;
+	} catch (error) {
+		context.logger.warn('Failed to load NetSuite record types from metadata catalog, using fallback list', {
+			error: (error as Error).message,
 		});
-	} catch (_error) {
-		context.logger.warn(
-			'Failed to load NetSuite record types from metadata catalog, using fallback list',
-			{ error: (_error as Error).message },
-		);
 	}
+	return FALLBACK_RECORD_TYPES.map((t) => t.value as string);
+}
 
-	if (returnData.length === 0) {
-		returnData.push(...FALLBACK_RECORD_TYPES);
-	}
+/** listSearch handler for the Record Type picker: cached, filtered as the user types */
+export async function searchRecordTypes(
+	this: ILoadOptionsFunctions,
+	filter?: string,
+): Promise<INodeListSearchResult> {
+	const types = await getRecordTypeNames(this);
+	const needle = (filter || '').toLowerCase().trim();
+	const matches = needle ? types.filter((t) => t.toLowerCase().includes(needle)) : types;
+	return { results: matches.map((t) => ({ name: t, value: t })) };
+}
 
-	return returnData;
+/** Record Type picker shared by the NetSuite node and trigger */
+export function recordTypeProperty(
+	description: string,
+	displayOptions?: INodeProperties['displayOptions'],
+): INodeProperties {
+	return {
+		displayName: 'Record Type',
+		name: 'recordType',
+		type: 'resourceLocator',
+		default: { mode: 'list', value: 'customer', cachedResultName: 'customer' },
+		required: true,
+		description,
+		...(displayOptions ? { displayOptions } : {}),
+		modes: [
+			{
+				displayName: 'From List',
+				name: 'list',
+				type: 'list',
+				typeOptions: { searchListMethod: 'searchRecordTypes', searchable: true },
+			},
+			{
+				displayName: 'By ID',
+				name: 'id',
+				type: 'string',
+				placeholder: 'e.g. salesOrder or customrecord_project',
+			},
+		],
+	};
 }
 
 // ---------------------------------------------------------------------------
