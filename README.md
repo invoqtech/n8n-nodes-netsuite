@@ -1,14 +1,16 @@
-# n8n-nodes-netsuite-v2
+# NetSuite for n8n — by InvoQ Technologies
 
-[![npm version](https://img.shields.io/npm/v/n8n-nodes-netsuite-v2.svg)](https://www.npmjs.com/package/n8n-nodes-netsuite-v2)
-[![npm downloads](https://img.shields.io/npm/dm/n8n-nodes-netsuite-v2.svg)](https://www.npmjs.com/package/n8n-nodes-netsuite-v2)
+[![npm version](https://img.shields.io/npm/v/@invoqtech/n8n-nodes-netsuite.svg)](https://www.npmjs.com/package/@invoqtech/n8n-nodes-netsuite)
+[![npm downloads](https://img.shields.io/npm/dm/@invoqtech/n8n-nodes-netsuite.svg)](https://www.npmjs.com/package/@invoqtech/n8n-nodes-netsuite)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![n8n community node](https://img.shields.io/badge/n8n-community%20node-ff6d5a.svg)](https://docs.n8n.io/integrations/community-nodes/)
-[![Built by SolutionLab](https://img.shields.io/badge/Built%20by-SolutionLab-0077B5.svg)](https://solutionlabtech.com)
+[![Built by InvoQ](https://img.shields.io/badge/Built%20by-InvoQ%20Technologies-0077B5.svg)](https://invoqtech.com/?utm_source=github&utm_medium=readme)
 
-A production-grade n8n community node for **Oracle NetSuite**, built by **[SolutionLab](https://solutionlabtech.com)** ([Avishai Asaf](https://www.linkedin.com/in/avishaiasaf/)). Connects to the NetSuite REST API using **OAuth 2.0 Client Credentials with Certificate** (Machine-to-Machine / JWT PS256) - the most secure, fully automated authentication method available for server-to-server integrations.
+**Production-grade Oracle NetSuite for n8n**, built and maintained by **[InvoQ Technologies](https://invoqtech.com/?utm_source=github&utm_medium=readme)** — NetSuite architects behind 100+ implementations. It connects to the NetSuite REST API with **OAuth 2.0 Client Credentials with Certificate** (machine-to-machine, JWT PS256): no browser logins and no refresh tokens to renew.
 
-**3 resources. 11 operations. Polling triggers. SuiteQL templates. Zero user interaction required for authentication.**
+**REST records · SuiteQL · RESTlets · Polling triggers · AI Agent tool**
+
+> **Moving from `n8n-nodes-netsuite-v2`?** This is the same connector under its new name. See [Migrating from n8n-nodes-netsuite-v2](#migrating-from-n8n-nodes-netsuite-v2).
 
 ---
 
@@ -16,7 +18,7 @@ A production-grade n8n community node for **Oracle NetSuite**, built by **[Solut
 
 Standard NetSuite integrations in n8n rely on OAuth 2.0 Authorization Code flow, which requires a browser-based login, manual token refresh, and session management. This creates fragile automations that break when tokens expire or when running in headless environments.
 
-This node was built by SolutionLab to solve three specific production bottlenecks:
+This node was built to solve three specific production bottlenecks:
 
 ### Fully Automated M2M Authentication
 
@@ -125,7 +127,7 @@ The **NetSuite Trigger** node monitors your NetSuite data for changes and starts
 ### Community Nodes (Recommended)
 
 1. In n8n, go to **Settings > Community Nodes**
-2. Enter `n8n-nodes-netsuite-v2`
+2. Enter `@invoqtech/n8n-nodes-netsuite`
 3. Click **Install**
 4. Restart n8n if prompted
 
@@ -133,7 +135,7 @@ The **NetSuite Trigger** node monitors your NetSuite data for changes and starts
 
 ```bash
 cd ~/.n8n/custom
-npm install n8n-nodes-netsuite-v2
+npm install @invoqtech/n8n-nodes-netsuite
 ```
 
 Then restart n8n.
@@ -144,7 +146,7 @@ Then restart n8n.
 
 ## Quick Start
 
-1. **Install** the node via Settings > Community Nodes > `n8n-nodes-netsuite-v2`
+1. **Install** the node via Settings > Community Nodes > `@invoqtech/n8n-nodes-netsuite`
 2. **Configure credentials** — follow the [NetSuite Setup](#netsuite-setup---prerequisites) below to create an M2M integration and certificate
 3. **Create your first workflow** — drag the NetSuite node onto the canvas, select Resource: SuiteQL, pick "Active Customers" template, and execute
 
@@ -223,7 +225,7 @@ The node automatically normalizes the Account ID for API URLs (converts to lower
 
 ## Credential Configuration
 
-When creating a new **NetSuite Client Credentials (Certificate)** credential in n8n, fill in the following fields:
+When creating a new **NetSuite Client Credentials (Certificate) API** credential in n8n, fill in the following fields:
 
 | Field | Description | Where to Find |
 |-------|-------------|---------------|
@@ -363,7 +365,7 @@ The trigger polls NetSuite at the interval configured in your workflow settings.
 
 #### Upsert a Record
 
-Select **Operation: Upsert**, choose the record type, specify the **External ID Field** (default: `externalid`) and its **Value**, then provide the fields:
+Select **Operation: Create or Update** (upsert), choose the record type, specify the **External ID Field** (default: `externalid`) and its **Value**, then provide the fields:
 
 ```json
 {
@@ -379,7 +381,7 @@ If a record with the given external ID exists, it will be updated. Otherwise, a 
 
 ## Common Workflow Examples
 
-These are popular workflows built with this connector. For implementation help, [contact SolutionLab](https://solutionlabtech.com).
+These are popular workflows built with this connector. For implementation help, [contact InvoQ](https://invoqtech.com/?utm_source=github&utm_medium=readme).
 
 **NetSuite → Google Sheets Daily Sync**
 Schedule a daily SuiteQL query (e.g., open invoices) and write results to a Google Sheet for reporting.
@@ -400,11 +402,11 @@ Poll inventory levels with SuiteQL and send Slack alerts when stock falls below 
 
 ## Professional Services & Support
 
-This node is developed and maintained by **[SolutionLab](https://solutionlabtech.com)**, a team that specializes in NetSuite integrations, SuiteScript development, and n8n workflow automation.
+This node is developed and maintained by **[InvoQ Technologies](https://invoqtech.com/?utm_source=github&utm_medium=readme)**, a NetSuite consultancy specializing in implementations, SuiteScript and SuiteQL development, integrations and n8n automation.
 
 ### Free vs Professional
 
-| Capability | Free (this connector) | Professional (SolutionLab) |
+| Capability | Free (this connector) | Professional (InvoQ) |
 |---|---|---|
 | Record CRUD + Upsert | Included | — |
 | SuiteQL queries with templates | Included | — |
@@ -426,7 +428,7 @@ This node is developed and maintained by **[SolutionLab](https://solutionlabtech
 
 ### Contact
 
-**[Book a consultation](https://solutionlabtech.com)** | [avishai@solutionlabtech.com](mailto:avishai@solutionlabtech.com) | [LinkedIn](https://www.linkedin.com/in/avishaiasaf/)
+**[Book a consultation](https://invoqtech.com/?utm_source=github&utm_medium=readme)** | [avishai@invoqtech.com](mailto:avishai@invoqtech.com) | [LinkedIn](https://www.linkedin.com/in/avishaiasaf/)
 
 ---
 
@@ -541,16 +543,24 @@ Two hooks ensure the Bearer token is attached to every outgoing request:
 
 ---
 
-## What's New in v0.3.0
+## What's New in 1.0.0
 
-- **Polling Triggers** — Monitor NetSuite records for creation/modification with the new NetSuite Trigger node
-- **6 SuiteQL Templates** — Built-in queries for customers, sales orders, invoices, inventory, employees, and vendor bills
-- **Improved Error Messages** — Contextual help for common HTTP errors (400, 401, 403, 404) with troubleshooting guidance
-- **Input Validation** — Record ID and External ID checks prevent cryptic API errors
-- **Pagination Safety** — Maximum iteration limits prevent runaway loops
-- **AI Agent Support** — Use the NetSuite node as a tool in n8n AI Agent workflows
+- **New home** — published as `@invoqtech/n8n-nodes-netsuite`, maintained by InvoQ Technologies at [github.com/invoqtech/n8n-nodes-netsuite](https://github.com/invoqtech/n8n-nodes-netsuite)
+- **Trigger reliability** — the polling trigger now tracks NetSuite's own timestamps, so it no longer misses or repeats records when the n8n server and the NetSuite user are in different time zones
+- **Stable paging** — SuiteQL pages in the trigger are ordered, so large result sets no longer overlap or skip rows
+- **Signed releases** — published from GitHub Actions with npm provenance
 
-No breaking changes from v0.2.x. See [CHANGELOG.md](CHANGELOG.md) for full details.
+See [CHANGELOG.md](CHANGELOG.md) for full details.
+
+## Migrating from n8n-nodes-netsuite-v2
+
+n8n identifies a node by its package name, so existing workflows keep pointing at the old package until you swap the nodes. It takes a few minutes per workflow:
+
+1. Install `@invoqtech/n8n-nodes-netsuite` from **Settings > Community Nodes** (keep the old package installed for now).
+2. Create a new **NetSuite Client Credentials (Certificate) API** credential with the same four values: Account ID, Consumer Key, Certificate ID and private key.
+3. In each workflow, add the new NetSuite node next to the old one, copy its parameters, reconnect it, and delete the old node. Do the same for NetSuite Trigger nodes.
+4. Activate the workflow. A new trigger starts from the moment it is activated, so it will not replay old records.
+5. When no workflow uses the old nodes, uninstall `n8n-nodes-netsuite-v2`.
 
 ---
 
@@ -558,8 +568,8 @@ No breaking changes from v0.2.x. See [CHANGELOG.md](CHANGELOG.md) for full detai
 
 ```bash
 # Clone the repository
-git clone https://github.com/avishaiasaf/n8n-netsuite-node-v2.git
-cd n8n-nodes-netsuite-v2
+git clone https://github.com/invoqtech/n8n-nodes-netsuite.git
+cd n8n-nodes-netsuite
 
 # Install dependencies
 npm install
@@ -571,10 +581,10 @@ npm run build
 npm run lint
 ```
 
-Submit issues and pull requests via [GitHub](https://github.com/avishaiasaf/n8n-netsuite-node-v2).
+Submit issues and pull requests via [GitHub](https://github.com/invoqtech/n8n-nodes-netsuite).
 
 ---
 
 ## License
 
-MIT
+MIT © InvoQ Technologies Cyprus Ltd

@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.0.0] - 2026-10-17
+
+Package renamed from `n8n-nodes-netsuite-v2` to `@invoqtech/n8n-nodes-netsuite`, now maintained by InvoQ Technologies. Existing workflows must swap their nodes; see "Migrating from n8n-nodes-netsuite-v2" in the README.
+
+### Fixed
+- **Trigger time zones** — the polling trigger compared the n8n server's local clock with timestamps NetSuite evaluates in the integration user's time zone. When the two differed it either never fired or re-fired the same records on every poll. The watermark is now produced by NetSuite (`TO_CHAR`) and compared with `TO_DATE` in the same format, so the server clock is no longer used.
+- **Trigger duplicates** — records stamped on the watermark second are remembered by ID and not emitted twice.
+- **Trigger paging** — trigger queries now `ORDER BY` the watched date and `id`, so offset pages cannot overlap or skip rows.
+
+### Changed
+- **Faster setup** — the credential test now checks one record type (`metadata-catalog?select=customer`) instead of downloading the full metadata catalog. The Record Type field is a search picker that loads the catalog only when opened, caches it per account for 6 hours, and also accepts a typed ID (for example `salesOrder`) with no request at all.
+- **Authentication** — the token exchange now runs through n8n's HTTP helper instead of Node's `https` module, and the access token is stored as an expirable credential field that n8n refreshes on a 401 (required for n8n Cloud and verification).
+- **Trigger baseline** — on activation the trigger starts from the newest timestamp already in NetSuite; state from 0.x is reset, not replayed. Manual tests look back from that timestamp.
+- **Icons** — Oracle NetSuite logo as an SVG icon (light and dark variants).
+- **Lint compliance** — node and credential names, option ordering and labels follow the current `@n8n/node-cli` linter (for example "Upsert" is now "Create or Update", Limit defaults to 50, trigger node type is `netSuiteTrigger`).
+- **Branding** — author, links, hints and error help now point to InvoQ Technologies (invoqtech.com).
+
+### Added
+- GitHub Actions workflows: CI (lint, build, tests) and tag-triggered publishing with npm provenance.
+- Unit tests for the trigger watermark logic (`npm test`).
+
 ## [0.3.0] - 2026-03-18
 
 ### Added

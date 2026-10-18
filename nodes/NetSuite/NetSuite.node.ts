@@ -2,18 +2,17 @@ import type {
 	IDataObject,
 	IExecuteFunctions,
 	IHttpRequestOptions,
-	ILoadOptionsFunctions,
 	INodeExecutionData,
-	INodePropertyOptions,
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import {
 	buildSuiteTalkBaseUrl,
 	buildRestletBaseUrl,
-	loadRecordTypes,
+	recordTypeProperty,
+	searchRecordTypes,
 	parseNetSuiteError,
 	SUITEQL_TEMPLATES,
 	MAX_PAGES,
@@ -23,7 +22,7 @@ export class NetSuite implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'NetSuite',
 		name: 'netSuite',
-		icon: 'file:netsuite.png',
+		icon: { light: 'file:netsuite.svg', dark: 'file:netsuite.dark.svg' },
 		group: ['transform'],
 		version: 1,
 		subtitle: '={{$parameter["operation"] + ": " + $parameter["resource"]}}',
@@ -31,12 +30,12 @@ export class NetSuite implements INodeType {
 		defaults: {
 			name: 'NetSuite',
 		},
-		inputs: ['main'],
-		outputs: ['main'],
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		usableAsTool: true,
 		credentials: [
 			{
-				name: 'netSuiteClientCredApi',
+				name: 'netSuiteInvoqApi',
 				required: true,
 			},
 		],
@@ -49,7 +48,7 @@ export class NetSuite implements INodeType {
 		},
 		hints: [
 			{
-				message: 'Need help with complex NetSuite integrations? <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> offers custom SuiteScript development and integration consulting.',
+				message: 'Need help with complex NetSuite integrations? <a href="https://invoqtech.com/?utm_source=n8n&utm_medium=node-hint" target="_blank">InvoQ</a> offers custom SuiteScript development and integration consulting.',
 				type: 'info' as const,
 				location: 'ndv' as const,
 				whenToDisplay: 'always' as const,
@@ -63,14 +62,14 @@ export class NetSuite implements INodeType {
 				displayCondition: '={{ $parameter.resource === "record" && $parameter.operation === "getAll" }}',
 			},
 			{
-				message: 'Need to create records with line items (invoices, sales orders)? These require nested JSON structures. <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> can help with complex transaction workflows.',
+				message: 'Need to create records with line items (invoices, sales orders)? These require nested JSON structures. <a href="https://invoqtech.com/?utm_source=n8n&utm_medium=node-hint" target="_blank">InvoQ</a> can help with complex transaction workflows.',
 				type: 'info' as const,
 				location: 'ndv' as const,
 				whenToDisplay: 'beforeExecution' as const,
 				displayCondition: '={{ $parameter.resource === "record" && $parameter.operation === "create" }}',
 			},
 			{
-				message: 'Need help with complex SuiteQL JOINs or custom record queries? <a href="https://solutionlabtech.com" target="_blank">SolutionLab</a> offers SuiteQL and integration consulting.',
+				message: 'Need help with complex SuiteQL JOINs or custom record queries? <a href="https://invoqtech.com/?utm_source=n8n&utm_medium=node-hint" target="_blank">InvoQ</a> offers SuiteQL and integration consulting.',
 				type: 'info' as const,
 				location: 'ndv' as const,
 				whenToDisplay: 'beforeExecution' as const,
@@ -124,6 +123,12 @@ export class NetSuite implements INodeType {
 						action: 'Create a record',
 					},
 					{
+						name: 'Create or Update',
+						value: 'upsert',
+						description: 'Create a new record, or update the current one if it already exists (upsert)',
+						action: 'Upsert a record',
+					},
+					{
 						name: 'Delete',
 						value: 'delete',
 						description: 'Delete a record',
@@ -146,12 +151,6 @@ export class NetSuite implements INodeType {
 						value: 'update',
 						description: 'Update a record',
 						action: 'Update a record',
-					},
-					{
-						name: 'Upsert',
-						value: 'upsert',
-						description: 'Create or update a record by external ID',
-						action: 'Upsert a record',
 					},
 				],
 				default: 'get',
@@ -217,7 +216,7 @@ export class NetSuite implements INodeType {
 						name: 'Execute',
 						value: 'execute',
 						description: 'Execute a SuiteQL query',
-						action: 'Execute a SuiteQL query',
+						action: 'Run a query',
 					},
 				],
 				default: 'execute',
@@ -226,21 +225,9 @@ export class NetSuite implements INodeType {
 			// ----------------------------------
 			//         Record Fields
 			// ----------------------------------
-			{
-				displayName: 'Record Type',
-				name: 'recordType',
-				type: 'options',
-				default: 'customer',
-				typeOptions: {
-					loadOptionsMethod: 'getRecordTypes',
-				},
-				description: 'The type of record to access. Choose from the list or enter a custom ID.',
-				displayOptions: {
-					show: {
-						resource: ['record'],
-					},
-				},
-			},
+			recordTypeProperty('The type of record to access. Pick from the list or type its ID, e.g. salesOrder.', {
+				show: { resource: ['record'] },
+			}),
 			{
 				displayName: 'Record ID',
 				name: 'recordId',
@@ -298,7 +285,7 @@ export class NetSuite implements INodeType {
 						name: 'jsonFields',
 						type: 'json',
 						default: '{}',
-						placeholder: '{"companyname": "Acme Corp", "email": "contact@acme.com", "subsidiary": {"id": "1"}}',
+						placeholder: '{"companyname": "Acme Corp", "email": "contact@acme.com"}',
 						description: 'JSON object representing the fields to set on the record',
 					},
 				],
@@ -359,7 +346,7 @@ export class NetSuite implements INodeType {
 						name: 'fields',
 						type: 'string',
 						default: '',
-						description: 'Comma-separated list of field names to return (e.g. "id,companyName,email")',
+						description: 'Comma-separated list of field names to return, for example companyname,email',
 					},
 				],
 			},
@@ -373,29 +360,14 @@ export class NetSuite implements INodeType {
 				type: 'options',
 				options: [
 					{
-						name: 'Custom Query',
-						value: 'custom',
-						description: 'Write your own SuiteQL query',
-					},
-					{
 						name: 'Active Customers',
 						value: 'activeCustomers',
 						description: 'List all active customers with key fields',
 					},
 					{
-						name: 'Recent Sales Orders (30 days)',
-						value: 'recentSalesOrders',
-						description: 'Sales orders from the last 30 days',
-					},
-					{
-						name: 'Open Invoices',
-						value: 'openInvoices',
-						description: 'All unpaid invoices sorted by due date',
-					},
-					{
-						name: 'Inventory Levels',
-						value: 'inventoryLevels',
-						description: 'Items with on-hand and available quantities',
+						name: 'Custom Query',
+						value: 'custom',
+						description: 'Write your own SuiteQL query',
 					},
 					{
 						name: 'Employee Directory',
@@ -403,7 +375,22 @@ export class NetSuite implements INodeType {
 						description: 'All active employees with contact details',
 					},
 					{
-						name: 'Vendor Bills (30 days)',
+						name: 'Inventory Levels',
+						value: 'inventoryLevels',
+						description: 'Items with on-hand and available quantities',
+					},
+					{
+						name: 'Open Invoices',
+						value: 'openInvoices',
+						description: 'All unpaid invoices sorted by due date',
+					},
+					{
+						name: 'Recent Sales Orders (30 Days)',
+						value: 'recentSalesOrders',
+						description: 'Sales orders from the last 30 days',
+					},
+					{
+						name: 'Vendor Bills (30 Days)',
 						value: 'recentVendorBills',
 						description: 'Vendor bills from the last 30 days',
 					},
@@ -426,7 +413,7 @@ export class NetSuite implements INodeType {
 				},
 				default: '',
 				placeholder: "SELECT id, companyname, email FROM customer WHERE isinactive = 'F'",
-				description: 'The SuiteQL query to execute',
+				description: 'The SuiteQL query to execute. With Return All on, end the query with an ORDER BY (for example ORDER BY t.ID) so pages do not overlap or skip rows.',
 				displayOptions: {
 					show: {
 						resource: ['suiteql'],
@@ -440,7 +427,7 @@ export class NetSuite implements INodeType {
 				name: 'returnAll',
 				type: 'boolean',
 				default: false,
-				description: 'Whether to return all results or only up to the limit',
+				description: 'Whether to return all results or only up to a given limit',
 				displayOptions: {
 					show: {
 						resource: ['suiteql'],
@@ -452,7 +439,7 @@ export class NetSuite implements INodeType {
 				displayName: 'Limit',
 				name: 'limit',
 				type: 'number',
-				default: 1000,
+				default: 50,
 				description: 'Max number of results to return',
 				typeOptions: {
 					minValue: 1,
@@ -546,10 +533,8 @@ export class NetSuite implements INodeType {
 	};
 
 	methods = {
-		loadOptions: {
-			async getRecordTypes(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
-				return loadRecordTypes(this);
-			},
+		listSearch: {
+			searchRecordTypes,
 		},
 	};
 
@@ -558,7 +543,7 @@ export class NetSuite implements INodeType {
 		const returnData: IDataObject[] = [];
 		const resource = this.getNodeParameter('resource', 0) as string;
 		const operation = this.getNodeParameter('operation', 0) as string;
-		const credentials = await this.getCredentials('netSuiteClientCredApi');
+		const credentials = await this.getCredentials('netSuiteInvoqApi');
 		const suiteTalkBase = buildSuiteTalkBaseUrl(credentials.accountId as string);
 		const restletBase = buildRestletBaseUrl(credentials.accountId as string);
 
@@ -567,7 +552,7 @@ export class NetSuite implements INodeType {
 				let responseData: IDataObject | IDataObject[] | undefined;
 
 				if (resource === 'record') {
-					const recordType = this.getNodeParameter('recordType', i) as string;
+					const recordType = this.getNodeParameter('recordType', i, '', { extractValue: true }) as string;
 
 					if (operation === 'get') {
 						const recordId = this.getNodeParameter('recordId', i) as string;
@@ -581,7 +566,7 @@ export class NetSuite implements INodeType {
 
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'GET',
 								url: `${suiteTalkBase}/record/v1/${recordType}/${recordId}`,
@@ -601,7 +586,7 @@ export class NetSuite implements INodeType {
 							pageCount++;
 							const response = (await this.helpers.httpRequestWithAuthentication.call(
 								this,
-								'netSuiteClientCredApi',
+								'netSuiteInvoqApi',
 								{
 									method: 'GET',
 									url: nextUrl,
@@ -640,7 +625,7 @@ export class NetSuite implements INodeType {
 						}
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'POST',
 								url: `${suiteTalkBase}/record/v1/${recordType}`,
@@ -666,7 +651,7 @@ export class NetSuite implements INodeType {
 						}
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'PATCH',
 								url: `${suiteTalkBase}/record/v1/${recordType}/${recordId}`,
@@ -693,7 +678,7 @@ export class NetSuite implements INodeType {
 						}
 						responseData = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'PUT',
 								url: `${suiteTalkBase}/record/v1/${recordType}/${externalIdField}=${externalIdValue}`,
@@ -708,7 +693,7 @@ export class NetSuite implements INodeType {
 						}
 						await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'DELETE',
 								url: `${suiteTalkBase}/record/v1/${recordType}/${recordId}`,
@@ -733,7 +718,7 @@ export class NetSuite implements INodeType {
 						pageCount++;
 						const response = (await this.helpers.httpRequestWithAuthentication.call(
 							this,
-							'netSuiteClientCredApi',
+							'netSuiteInvoqApi',
 							{
 								method: 'POST',
 								url: `${suiteTalkBase}/query/v1/suiteql`,
@@ -801,7 +786,7 @@ export class NetSuite implements INodeType {
 
 					responseData = (await this.helpers.httpRequestWithAuthentication.call(
 						this,
-						'netSuiteClientCredApi',
+						'netSuiteInvoqApi',
 						requestOptions,
 					)) as IDataObject;
 				}
@@ -819,7 +804,7 @@ export class NetSuite implements INodeType {
 						returnData.push({ error: error.message });
 						continue;
 					}
-					throw error;
+					throw new NodeOperationError(this.getNode(), error, { itemIndex: i });
 				}
 
 				const errorMessage = parseNetSuiteError(error);
